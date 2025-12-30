@@ -1,23 +1,37 @@
 
-import { User, Match, Transaction, AppNotification, UserRole, MatchPlayer } from '../types';
+import { User, Match, Transaction, AppNotification, MatchPlayer } from '../types.ts';
 
-// The URL of your Render backend. In production, use environment variables.
+// The URL of your Render backend. 
+// Removed trailing /api to prevent double prefixing in requests
 const API_BASE = (import.meta as any).env?.VITE_API_URL;
 
 class StateService {
   private async request(path: string, options: RequestInit = {}) {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.message || 'Network Protocol Failure');
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Expected JSON but received:', text.substring(0, 100));
+        throw new Error(`Server returned non-JSON response (${response.status})`);
+      }
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Network Protocol Failure');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Request failed:', path, err);
+      throw err;
     }
-    return response.json();
   }
 
   async login(email: string, pin: string): Promise<User> {
@@ -34,7 +48,7 @@ class StateService {
 
   async getUserById(id: string): Promise<User | undefined> {
     const users = await this.getUsers();
-    return users.find(u => u.id === id);
+    return users.find(u => u.id === id || (u as any)._id === id);
   }
 
   async addUser(user: Partial<User>): Promise<User> {
